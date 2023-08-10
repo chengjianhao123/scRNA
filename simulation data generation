@@ -1,0 +1,76 @@
+install.packages("seewave")
+library(seewave)
+install.packages("provenance")
+library(provenance)
+library(ggplot2)
+install.packages("vegan")
+library(vegan)
+install.packages("geosphere")
+library(geosphere)
+install.packages("ape")
+library(ade4)
+
+#write function for calculating rho value
+set.seed(100)
+rho_calc <- function(dat, age){
+  N <- length(age)
+  dist_mat <- matrix(0, N, N)
+  for(i in 1:(N-1)){
+    for(j in (i+1):N){
+      tmp_ida <-dat[i,]
+      tmp_idb <-dat[j,]
+      dist_mat[i,j] <-KS.diss(tmp_ida,tmp_idb)
+    }
+  }
+  dist_mat2 <- dist_mat + t(dist_mat)
+  age_dist <- as.matrix(dist(age))
+  rho <- cor(dist_mat2[upper.tri(dist_mat2)], age_dist[upper.tri(age_dist)], method="spearman")
+  return(rho)
+}
+
+
+#Generate the parameter for simulation data
+iters <- 100
+rho_iters <- rep(NA, iters)
+rho_iters_null <- rep(NA, iters)
+true_mu <- c(10, 10, 10, 10)
+true_sd <- c(1, 2, 3, 4)
+psd <- 0.1
+age_cols <- 1:4
+for(i in 1:iters){
+  n_each <- 5
+  age <- rep(1:4, each=n_each)
+  mu_vec <- c(rnorm(n_each, true_mu[1], psd), rnorm(n_each, true_mu[2], psd), rnorm(n_each, true_mu[3], psd), rnorm(n_each, true_mu[4], psd))
+  sd_vec <- abs(c(rnorm(n_each, true_sd[1], psd), rnorm(n_each, true_sd[2], psd), rnorm(n_each, true_sd[3], psd), rnorm(n_each, true_sd[4], psd)))
+  if(i == 1){
+    plot(mu_vec, sd_vec, col=age, pch=16, main="Example", xlab="mean", ylab="sd", cex.axis=2, cex.lab=2)
+    #legend("topleft", legend = age_cols, col = age_cols, pch =16, lty = 1, ncol = 2)
+  }
+  N <- length(age)
+  n <- 1000
+  dat <- matrix(0, N, n)
+  for(j in 1:N){
+    dat[j,] <- rnorm(n, mu_vec[j], sd_vec[j])
+  }
+  rho_iters[i] <- rho_calc(dat, age) 
+  rho_iters_null[i] <- rho_calc(dat, sample(age))  
+}
+
+#Visulize the True distributions
+# 平均と標準偏差
+true_mu <- c(1, 1, 1, 1)
+true_sd <- c(1, 2, 3, 4)
+x <- seq(-10, 10, length.out = 1000)
+for (i in 1:length(true_mu)) {
+   y <- dnorm(x, mean = true_mu[i], sd = true_sd[i])
+   if (i == 1) {
+      plot(x, y, type = "l", ylim = c(0, max(y)), xlab = "", ylab = "", col = i, cex.axis=2, cex.lab=2, lwd=4)
+   } else {
+      lines(x, y, col = i,  lwd=4)
+   }
+}
+legend("topright", legend = paste("Age =", true_sd),  lty = 1,  lwd=3, col = 1:4, cex=1)
+
+##draw the box plot
+boxplot(rho_iters, cex.axis=2,cex.lab=2)
+boxplot(rho_iters_null, cex.axis=2, cex.lab=2)
