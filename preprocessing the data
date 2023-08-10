@@ -1,0 +1,32 @@
+#source /Users/dokada/opt/anaconda3/etc/profile.d/conda.sh
+#conda activate myscanpy
+#python /Users/dokada/Dropbox/analysis/2022.5/scaging_h5ad_csv.py
+
+#Dir create
+import os
+import numpy as np
+out_path = "/Users/dokada/Desktop/work/scaging_h5ad_csv/"
+if np.logical_not(os.path.isdir(out_path)):
+    os.mkdir(out_path)
+
+#Data read
+import pandas as pd
+import scanpy as sc
+adata_raw = sc.read_h5ad("/Users/dokada/Desktop/work/tms_data/tabula-muris-senis-droplet-processed-official-annotations.h5ad")
+target_sex = "male"
+
+#All tissue
+from scipy.sparse import csr_matrix
+all_tissues =  np.unique(np.asarray(adata_raw.obs.tissue.values))
+for i in range(len(all_tissues)):
+    target_tissue = all_tissues[i]
+    bools = (adata_raw.obs["tissue"] == target_tissue) &  (adata_raw.obs["sex"] == target_sex)
+    adata = adata_raw[bools.values, :]
+    adata_X_csr = csr_matrix(adata.X)
+    df_tissue_sex = pd.DataFrame(data=csr_matrix.todense(adata_X_csr))
+    obs_tissue_sex = adata.obs
+    df_tissue_sex.to_csv(out_path + target_tissue + '.X.csv', index=False)
+    obs_tissue_sex.to_csv(out_path + target_tissue + '.obs.csv', index=False)
+    if i==0:
+        adata.var.to_csv(out_path + 'var_genes.csv', index=True)
+    print(i, "\n")
