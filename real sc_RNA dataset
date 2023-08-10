@@ -1,0 +1,121 @@
+# load the library
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("org.Mm.eg.db")
+BiocManager::install("clusterProfiler")
+install.packages("data.table")
+library(data.table)
+library("clusterProfiler")
+library("org.Mm.eg.db")
+install.packages("seewave")
+library(seewave)
+install.packages("provenance")
+library(provenance)
+library(ggplot2)
+install.packages("vegan")
+library(vegan)
+install.packages("geosphere")
+library(geosphere)
+install.packages("ape")
+library(ade4)
+BiocManager::install("pathview")
+BiocManager::install("enrichplot")
+library(clusterProfiler)
+library(enrichplot)
+
+
+
+
+
+#filter out the effective sample size
+data_path="/Users/admin/Desktop/okada_20220727/scaging_h5ad_csv/"
+filenames<-list.files(data_path,pattern="obs.csv")
+filenames2<-list.files(data_path,pattern="X.csv")
+all_tissues <- c('Bladder', 'Fat', 
+'Heart_and_Aorta', 'Kidney', 'Large_Intestine', 'Limb_Muscle', 'Liver', 'Lung', 'Mammary_Gland', 'Marrow', 'Pancreas', 'Skin', 'Spleen', 'Thymus', 'Tongue', 'Trachea')
+n_tissues <- length(all_tissues)
+N_tissues <- rep(NA, n_tissues)
+
+for(i in 1:n_tissues){
+        obs <- read.csv(filenames[i])
+        X <- fread(filenames2[i], header=T, data.table=F)
+        mouse_id<-unique(obs[,"mouse.id"])
+        N <- length(mouse_id)
+        N_tissues[i]<-N
+        print(i)
+        used_tissues<- all_tissues[N_tissues >= 10]}
+
+
+#rho calculation
+n_genes <-100
+ddg_list <- list()
+gos_list <- list()
+length(gos_list)<-4
+length(ddg_list)<-4
+vars <- read.csv("var_genes.csv", row.names=1)
+#test for one tissue
+for(t in 1:length(used_tissues)){      
+tmp_tissue <- used_tissues[t]
+obs <- read.csv(paste0(data_path, tmp_tissue, ".obs.csv"))
+X <- fread(paste0(data_path, tmp_tissue, ".X.csv"), header=T, data.table=F)
+mouse_id <- unique(obs[,"mouse.id"])
+N <- length(mouse_id)
+mouse_age <- sapply(mouse_id, function(chr){as.numeric(strsplit(chr,"-")[[1]][1])})
+
+#Select the genes based on sufficient mean expression values
+mean_exp <- colMeans(X)
+top_idx_vec <- order(mean_exp, decreasing=T)[1:n_genes]
+X_sub <- X[,top_idx_vec]
+mean_exp_sub <- mean_exp[top_idx_vec]
+vars_sub <- vars[top_idx_vec,]
+
+#Distmat create and calculate rho
+cor_gene_vec <- rep(NA, n_genes)
+p_gene_vec <- rep(NA, n_genes)
+mantel_result<-NA
+mantel_gene_vec<-rep(NA,n_genes)
+for(g in 1:n_genes){
+  dist_mat <- matrix(0, N, N)
+  grid_num <- 100
+  for(i in 1:(N-1)){
+    for(j in (i+1):N){
+      tmp_ida <- mouse_id[i]
+      tmp_idb <- mouse_id[j]
+      a <- X_sub[obs[,"mouse.id"]==tmp_ida, g]
+      b <- X_sub[obs[,"mouse.id"]==tmp_idb, g]
+      dist_mat[i,j] <-KS.diss(a,b)
+    }
+  }
+  dist_mat2 <- as.matrix(dist_mat + t(dist_mat))
+  age_dist <- as.matrix(dist(mouse_age))
+  cor_g <- cor(dist_mat2[upper.tri(dist_mat2)], age_dist[upper.tri(age_dist)], method="spearman")
+  cor_gene_vec[g] <- cor_g
+  mantel_result<-mantel(dist_mat2,age_dist,method="spearman")
+  mantel_gene_vec[g]<-mantel_result$signif
+  cat(g, "\n")
+}
+df<-as.data.frame(cor_gene_vec)
+df2<-as.data.frame(mantel_gene_vec)
+
+
+p<-ggplot(df, aes(x=cor_gene_vec))+geom_histogram(color="black", fill="white",binwidth = 0.02)+
+labs(title=used_tissues[t], x="pho_value", y="counts")+theme(plot.title = element_text(hjust = 0.5),text = element_text(size = 25))+
+geom_vline(xintercept=0.4,linetype=3,color = "red", size=1.5)
+ggsave(paste0(data_path, tmp_tissue, "rho.hist.png"),p,width =10, height =5, dpi = 300)
+
+#Record
+rho_rec <- data.frame(rownames(vars_sub), cor_gene_vec, mean_exp_sub,mantel_gene_vec)
+ddg_list[[t]] <- rho_rec
+}
+             
+
+#Top rho for each tissue
+names(ddg_list)<- used_tissues
+ddg_list[[1]][order(ddg_list[[1]]$cor_gene_vec,decreasing = T)[1:5],]
+ddg_list[[2]][order(ddg_list[[2]]$cor_gene_vec,decreasing = T)[1:5],]
+ddg_list[[3]][order(ddg_list[[3]]$cor_gene_vec,decreasing = T)[1:5],]
+ddg_list[[4]][order(ddg_list[[4]]$cor_gene_vec,decreasing = T)[1:5],]
+tmp_table<-rbind(ddg_list[[1]][order(ddg_list[[1]]$cor_gene_vec,decreasing = T)[1:2],],ddg_list[[2]][order(ddg_list[[2]]$cor_gene_vec,decreasing = T)[1:5],])
+final_table<-rbind(tmp_table,ddg_list[[3]][order(ddg_list[[3]]$cor_gene_vec,decreasing = T)[1],])          
+          
+
