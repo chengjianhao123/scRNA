@@ -1,0 +1,181 @@
+install.packages("seewave")
+library(seewave)
+install.packages("provenance")
+library(provenance)
+library(ggplot2)
+install.packages("vegan")
+library(vegan)
+install.packages("geosphere")
+library(geosphere)
+install.packages("textmineR")
+library(textmineR)
+
+genDat1<-function(){
+  mu_0<-rep(20,40)
+  psd0<-rep(0.1,40)
+  mu0<-rep(NA,40)
+  for (i in 1:40){
+    mu0[i]<-rnorm(1,mu_0[i],psd0[i])
+  }
+  dis_mu_0<-rep(c(1,5,10,15),each=10)
+  size0<-NA
+  for (i in 1:40){
+    size0[i]<-rnorm(1,dis_mu_0[i],0.1)
+  }
+  age <- rep(1:4, each=10)
+  #create the matrix
+  N <- length(age)
+  n <- 10000
+  dat <- matrix(0, N, n)
+  for(j in 1:N){
+    dat[j,] <- rnbinom(n, mu=mu0[j],size=size0[j])
+  }
+  return(dat)
+}
+
+
+
+#mu stay the same,whereas size the same
+genDat2<-function(){
+  mu_1<-rep(20,40)
+  psd1<-rep(0.1,40)
+  mu1<-rep(NA,40)
+  for (i in 1:40){
+    mu1[i]<-rnorm(1,mu_1[i],psd1[i])
+  }
+  dis_mu_1<-rep(1,each=40)
+  size1<-NA
+  for (i in 1:40){
+    size1[i]<-rnorm(1,dis_mu_1[i],0.1)
+  }
+  age <- rep(1:4, each=10)
+  #create the matrix
+  N <- length(age)
+  n <- 10000
+  dat2<- matrix(0, N, n)
+  for(j in 1:N){
+    dat2[j,] <- rnbinom(n, mu=mu1[j],size=size1[j])
+  }
+  return(dat2)
+}
+
+##mu stay the same,whereas size first increase then decrease
+genDat3<-function(){
+  mu_2<-rep(5,40)
+  psd2<-rep(0.1,40)
+  mu2<-rep(NA,40)
+  for (i in 1:40){
+    mu2[i]<-rnorm(1,mu_2[i],psd2[i])
+  }
+  size2<-NA
+  dis_mu_2<-rep(c(1,5,5,1),each=10)
+  size1<-NA
+  for (i in 1:40){
+    size2[i]<-rnorm(1,dis_mu_2[i],0.1)
+  }
+  age <- rep(1:4, each=10)
+  #create the matrix
+  N<-length(age)
+  n <-10000
+  dat3<- matrix(0, N, n)
+  for(j in 1:N){
+    dat3[j,] <- rnbinom(n,mu=mu2[j],size=size2[j])
+  }
+  return(dat3)
+}
+
+#calculate rho value
+# pearson correlation methods plus three different kinds of metrics
+rho_calc1 <- function(dat, age, grid_num=1000){
+  grid_num=1000
+  N <- length(age)
+  dist_mat1 <- matrix(0, N, N)
+  dist_mat2 <- matrix(0, N, N)
+  dist_mat3 <- matrix(0, N, N)
+  for(i in 1:(N-1)){
+    for(j in (i+1):N){
+      a <- dat[i,]
+      b <- dat[j,]
+      grid_min <- min(c(a, b))
+      grid_max <- max(c(a, b))
+      d <- density(a, n=grid_num, from=grid_min, to=grid_max)
+      pad <- d$y
+      pa <- pad/sum(pad)
+      d <- density(b, n=grid_num, from=grid_min, to=grid_max)
+      pbd <- d$y
+      pb <- pbd/sum(pbd)
+      dist_mat1[i,j] <- sqrt(sum((sqrt(pa) - sqrt(pb))^2))/sqrt(2)
+      dist_mat2[i,j] <- CalcJSDivergence(pa,pb)
+      dist_mat3[i,j]<-KS.diss(pa,pb)
+    }
+  }
+  dist_mat1_2 <- dist_mat1 + t(dist_mat1)
+  dist_mat2_2 <- dist_mat2 + t(dist_mat2)
+  dist_mat3_2<-dist_mat3 + t(dist_mat3)
+  age_dist <- as.matrix(abs(dist(age)))
+  rho1 <- cor(dist_mat1_2[upper.tri(dist_mat1_2)], age_dist[upper.tri(age_dist)], method="spearman")
+  rho2 <- cor(dist_mat2_2[upper.tri(dist_mat2_2)], age_dist[upper.tri(age_dist)], method="spearman")
+  rho3 <- cor(dist_mat3_2[upper.tri(dist_mat3_2)], age_dist[upper.tri(age_dist)], method="spearman")
+  return(c(rho1,rho2,rho3))
+}
+
+#using mantel test to test for signifance
+rho_calc2 <- function(dat, age, grid_num=1000){
+  grid_num=1000
+  N <- length(age)
+  dist_mat1 <- matrix(0, N, N)
+  dist_mat2 <- matrix(0, N, N)
+  dist_mat3 <- matrix(0, N, N)
+  for(i in 1:(N-1)){
+    for(j in (i+1):N){
+      a <- dat[i,]
+      b <- dat[j,]
+      grid_min <- min(c(a, b))
+      grid_max <- max(c(a, b))
+      d <- density(a, n=grid_num, from=grid_min, to=grid_max)
+      pad <- d$y
+      pa <- pad/sum(pad)
+      d <- density(b, n=grid_num, from=grid_min, to=grid_max)
+      pbd <- d$y
+      pb <- pbd/sum(pbd)
+      dist_mat1[i,j] <- sqrt(sum((sqrt(pa) - sqrt(pb))^2))/sqrt(2)
+      dist_mat2[i,j] <- CalcJSDivergence(pa,pb)
+      dist_mat3[i,j]<-KS.diss(pa,pb)
+    }
+  }
+  dist_mat1_2 <- dist_mat1 + t(dist_mat1)
+  dist_mat2_2 <- dist_mat2 + t(dist_mat2)
+  dist_mat3_2<-dist_mat3 + t(dist_mat3)
+  age_dist <- as.matrix(abs(dist(age)))
+  rho1 <-mantel(dist_mat1_2,age_dist,method="spearman")
+  rho2 <-mantel(dist_mat2_2,age_dist,method="spearman")
+  rho3 <-mantel(dist_mat3_2,age_dist,method="spearman")
+  return(c(rho1$signif,rho2$signif,rho3$signif))
+}
+#run the simulation
+correlation_matrix<-matrix(0,nrow=20000,ncol=3)
+pvalue_matrix<-matrix(0,nrow=20000,ncol=3)
+pseudobulk<-NA
+set.seed(100)
+age <- rep(1:4, each=10)
+for(i in 1:18000){
+  dat1<-genDat2()
+  correlation_matrix[i,]<-rho_calc1(dat1,age)
+  pvalue_matrix[i,]<-rho_calc2(dat1,age)
+  pseudobulk[i]<-cor(apply(dat1,1,mean),age,method="spearman")
+  print(i)
+}
+for(i in 18001:19000){
+  dat2<-genDat1()
+  correlation_matrix[i,]<-rho_calc1(dat2,age)
+  pvalue_matrix[i,]<-rho_calc2(dat2,age)
+  pseudobulk[i]<-cor(apply(dat2,1,mean),age,method="spearman")
+  print(i)
+}
+for(i in 19001:20000){
+  dat3<-genDat3()
+  correlation_matrix[i,]<-rho_calc1(dat3,age)
+  pvalue_matrix[i,]<-rho_calc2(dat3,age)
+  pseudobulk[i]<-cor(apply(dat3,1,mean),age,method="spearman")
+  print(i)
+}
