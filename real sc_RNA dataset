@@ -1,12 +1,9 @@
 # load the library
 if (!require("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
-BiocManager::install("org.Mm.eg.db")
 BiocManager::install("clusterProfiler")
 install.packages("data.table")
 library(data.table)
-library("clusterProfiler")
-library("org.Mm.eg.db")
 install.packages("seewave")
 library(seewave)
 install.packages("provenance")
@@ -16,16 +13,37 @@ install.packages("vegan")
 library(vegan)
 install.packages("geosphere")
 library(geosphere)
-install.packages("ape")
-library(ade4)
-BiocManager::install("pathview")
-BiocManager::install("enrichplot")
-library(clusterProfiler)
-library(enrichplot)
+install.packages("ggpubr")
+library(ggpubr)
+library(data.table)
+
+adjust_cor<-function(A,B){
+  tryCatch({
+    cor_g <- cor(A,B, method="spearman")
+    cor_gene_vec[g] <- cor_g
+  },
+  warning=function(w){
+    return(NA)
+  },
+  error=function(e){
+    return(NA)
+  })
+}
 
 
-
-
+adjust_mantel<-function(dist_mat2,age_dist){
+  tryCatch({
+    temp<-mantel(dist_mat2,age_dist,method="spearman")
+    mantel_gene_vec[g]<-temp$signif
+  },
+  warning=function(w){
+    return(NA)
+  },
+  error=function(e){
+    return(NA)
+  }
+  )
+}
 
 #filter out the effective sample size
 data_path="/Users/admin/Desktop/okada_20220727/scaging_h5ad_csv/"
@@ -44,78 +62,198 @@ for(i in 1:n_tissues){
         N_tissues[i]<-N
         print(i)
         used_tissues<- all_tissues[N_tissues >= 10]}
-
-
-#rho calculation
-n_genes <-100
 ddg_list <- list()
-gos_list <- list()
-length(gos_list)<-4
 length(ddg_list)<-4
-vars <- read.csv("var_genes.csv", row.names=1)
-#test for one tissue
-for(t in 1:length(used_tissues)){      
-tmp_tissue <- used_tissues[t]
-obs <- read.csv(paste0(data_path, tmp_tissue, ".obs.csv"))
-X <- fread(paste0(data_path, tmp_tissue, ".X.csv"), header=T, data.table=F)
-mouse_id <- unique(obs[,"mouse.id"])
-N <- length(mouse_id)
-mouse_age <- sapply(mouse_id, function(chr){as.numeric(strsplit(chr,"-")[[1]][1])})
+data_path="/Users/admin/Desktop/okada_20220727/scaging_h5ad_csv/"
 
-#Select the genes based on sufficient mean expression values
-mean_exp <- colMeans(X)
-top_idx_vec <- order(mean_exp, decreasing=T)[1:n_genes]
-X_sub <- X[,top_idx_vec]
-mean_exp_sub <- mean_exp[top_idx_vec]
-vars_sub <- vars[top_idx_vec,]
-
-#Distmat create and calculate rho
-cor_gene_vec <- rep(NA, n_genes)
-p_gene_vec <- rep(NA, n_genes)
-mantel_result<-NA
-mantel_gene_vec<-rep(NA,n_genes)
-for(g in 1:n_genes){
-  dist_mat <- matrix(0, N, N)
-  grid_num <- 100
-  for(i in 1:(N-1)){
-    for(j in (i+1):N){
-      tmp_ida <- mouse_id[i]
-      tmp_idb <- mouse_id[j]
-      a <- X_sub[obs[,"mouse.id"]==tmp_ida, g]
-      b <- X_sub[obs[,"mouse.id"]==tmp_idb, g]
-      dist_mat[i,j] <-KS.diss(a,b)
+#calculate efficient for all four organs
+for (t in 1:4){
+  cor_gene_vec<-NA
+  mantel_gene_vec<-NA
+  tmp_tissue <- used_tissues[t]
+  obs <- read.csv(paste0(data_path, tmp_tissue, ".obs.csv"))
+  X <- fread(paste0(data_path, tmp_tissue, ".X.csv"), header=T, data.table=F)
+  mouse_id <- unique(obs[,"mouse.id"])
+  N <- length(mouse_id)
+  mouse_age <- sapply(mouse_id, function(chr){as.numeric(strsplit(chr,"-")[[1]][1])})
+  
+  #rank the genes by expression
+  vars <- read.csv("var_genes.csv", row.names=1)
+  mean_exp <- colMeans(X)
+  n_genes<-length(mean_exp)
+  top_idx_vec <- order(mean_exp, decreasing=T)[1:n_genes]
+  X_sub <- X[,top_idx_vec]
+  mean_exp_sub <- mean_exp[top_idx_vec]
+  vars_sub <- vars[top_idx_vec,]
+  
+  for(g in 1:n_genes){
+    dist_mat <- matrix(0, N, N)
+    grid_num <- 1000
+    for(i in 1:(N-1)){
+      for(j in (i+1):N){
+        tmp_ida <- mouse_id[i]
+        tmp_idb <- mouse_id[j]
+        a <- X_sub[obs[,"mouse.id"]==tmp_ida, g]
+        b <- X_sub[obs[,"mouse.id"]==tmp_idb, g]
+        grid_min <- min(c(a, b))
+        grid_max <- max(c(a, b))
+        d <- density(a, n=grid_num, from=grid_min, to=grid_max)
+        pad <- d$y
+        pa <- pad/sum(pad)
+        d <- density(b, n=grid_num, from=grid_min, to=grid_max)
+        pbd <- d$y
+        pb <- pbd/sum(pbd)
+        dist_mat[i,j]<- sqrt(sum((sqrt(pa) - sqrt(pb))^2))/sqrt(2)
+      }
     }
+    dist_mat2 <- as.matrix(dist_mat + t(dist_mat))
+    age_dist <- as.matrix(abs(dist(mouse_age)))
+    cor_gene_vec[g]<-adjust_cor(dist_mat2[upper.tri(dist_mat2)], age_dist[upper.tri(age_dist)])
+    mantel_gene_vec[g]<-adjust_mantel(dist_mat2,age_dist)
+    print(adjust_mantel(dist_mat2,age_dist))
+    print(g)
   }
-  dist_mat2 <- as.matrix(dist_mat + t(dist_mat))
-  age_dist <- as.matrix(dist(mouse_age))
-  cor_g <- cor(dist_mat2[upper.tri(dist_mat2)], age_dist[upper.tri(age_dist)], method="spearman")
-  cor_gene_vec[g] <- cor_g
-  mantel_result<-mantel(dist_mat2,age_dist,method="spearman")
-  mantel_gene_vec[g]<-mantel_result$signif
-  cat(g, "\n")
+  rho_rec <- data.frame(rownames(vars_sub), cor_gene_vec, mean_exp_sub,mantel_gene_vec)
+  ddg_list[[t]] <- rho_rec
+  }
+
+
+# calculate top 3000 genes efficient
+df_test_new=NA
+df_test2_new<-list()
+length(df_test2_new)<-4
+df_test3_new<-list()
+length(df_test3_new)<-4
+
+for (t in 1:4){
+  df_test_new=na.omit(ddg_list[[t]][1:3000,])
+  p<-ggplot(df_test_new, aes(x=cor_gene_vec))+geom_histogram(color="black", fill="white",binwidth = 0.05)+
+    labs(title=used_tissues[t], x="correlation_coefficent", y="counts")+theme(plot.title = element_text(hjust = 0.5),text = element_text(size = 25))+
+    geom_vline(xintercept=0.85,linetype=3,color = "red", size=1.5)  
+   scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 20))
+   ggsave(paste0("pic3/", used_tissues[t], "3000_rho.hist.png"),p,width =10, height =5, dpi = 300)
+  
+  q<-ggplot(df_test_new, aes(x=mantel_gene_vec))+geom_histogram(color="black", fill="white",binwidth = 0.01)+
+    labs(title=used_tissues[t], x="p_value", y="counts")+theme(plot.title = element_text(hjust = 0.5),text = element_text(size = 25))
+  ggsave(paste0("pic3/", used_tissues[t], "3000_p_value.png"),q,width =10, height =5, dpi = 300)
+  
+  df_test_new$mantel_adjust<-p.adjust(df_test_new$mantel_gene_vec,method="BH")
+  z<-ggplot(df_test_new, aes(x=mantel_adjust))+geom_histogram(color="black", fill="white",binwidth = 0.01)+
+    labs(title=used_tissues[t], x="p_value", y="counts")+theme(plot.title = element_text(hjust = 0.5),text = element_text(size = 25))
+  ggsave(paste0("pic3/", used_tissues[t], "3000_adjust_p_value.hist.png"),z,width =10, height =5, dpi = 300)
+  print(t)
+  df_test2_new[[t]]<-df_test_new
+  if(sum(df_test_new$cor_gene_vec>=0.85)!=0){
+    tmp<-df_test_new[df_test_new$cor_gene_vec>=0.85,]
+    tmp$organ=used_tissues[t]
+    df_test3_new[[t]]<-tmp
+  }else{
+    df_test3_new[[t]]<-NA
+  }
+  print(nrow(df_test_new))
+  print(used_tissues[t])
 }
-df<-as.data.frame(cor_gene_vec)
-df2<-as.data.frame(mantel_gene_vec)
 
 
-p<-ggplot(df, aes(x=cor_gene_vec))+geom_histogram(color="black", fill="white",binwidth = 0.02)+
-labs(title=used_tissues[t], x="pho_value", y="counts")+theme(plot.title = element_text(hjust = 0.5),text = element_text(size = 25))+
-geom_vline(xintercept=0.4,linetype=3,color = "red", size=1.5)
-ggsave(paste0(data_path, tmp_tissue, "rho.hist.png"),p,width =10, height =5, dpi = 300)
+# all genes aging distribution plot
+final_table2<-df_test3_new[[2]]
+for (i in 1:13){
+  tmp_tissue=final_table2$organ[i]
+  tmp_gene=final_table2$rownames.vars_sub.[i]
+  obs <- read.csv(paste0(tmp_tissue, ".obs.csv"))
+  X <- fread(paste0(tmp_tissue, ".X.csv"), header=T, data.table=F)
+  gene_idx <- which(rownames(vars) ==tmp_gene)
 
-#Record
-rho_rec <- data.frame(rownames(vars_sub), cor_gene_vec, mean_exp_sub,mantel_gene_vec)
-ddg_list[[t]] <- rho_rec
-}
-             
+  
+  df<-data.frame(cbind(obs[,"age"],X[,gene_idx]))
+  colnames(df)<-c("age","value")
+  df$age=factor(df$age,levels=c("1m","3m","18m","24m","30m"))
+  df$value=as.numeric(df$value)
+  uni_age<-sort(unique(df$age))
+  max<-ceiling(max(df$value))
+  
+  df_age0<-df[df$age==uni_age[1],]
+  a<-ggplot(df_age0, aes(x=value)) + geom_histogram(aes(y = after_stat(count / sum(count))),
+                                                 breaks = seq(-0.01,max, by =0.5),color="green")+
+  ylab("Frequency")+ggtitle(paste0(tmp_gene,":",uni_age[1]))+
+  theme(plot.title = element_text(hjust = 0.5),text = element_text(size = 20))+xlab(uni_age[1])+
+  scale_x_continuous(breaks = seq(0,max, by =1),limits=c(-1,max))+ylim(0,0.85)
+  
+  
+  
+  
+  df_age1<-df[df$age==uni_age[2],]
+  b<-ggplot(df_age1, aes(x=value)) + geom_histogram(aes(y = after_stat(count / sum(count))),
+                                                    breaks = seq(-0.01,max, by =0.5),color="green")+
+    ylab("Frequency")+ggtitle(paste0(tmp_gene,":",uni_age[2]))+
+    theme(plot.title = element_text(hjust = 0.5),text = element_text(size = 20))+xlab(uni_age[2])+
+    scale_x_continuous(breaks = seq(0,max, by =1),limits=c(-1,max))+ylim(0,0.85)
+ 
+  
+  
+  df_age2<-df[df$age==uni_age[3],]
+  c<-ggplot(df_age2, aes(x=value)) + geom_histogram(aes(y = after_stat(count / sum(count))),
+                                                    breaks = seq(-0.01,max, by =0.5),color="green")+
+    ylab("Frequency")+ggtitle(paste0(tmp_gene,":",uni_age[3]))+ylim(0,0.85)+
+    theme(plot.title = element_text(hjust = 0.5),text = element_text(size = 20))+xlab(uni_age[3])+
+    scale_x_continuous(breaks = seq(0,max, by =1),limits=c(-1,max))
+ 
+  
+  df_age3<-df[df$age==uni_age[4],]
+  d<-ggplot(df_age3, aes(x=value)) + geom_histogram(aes(y = after_stat(count / sum(count))),
+                                                    breaks = seq(-0.01,max, by =0.5),color="green")+
+    ylab("Frequency")+ggtitle(paste0(tmp_gene,":",uni_age[4]))+ylim(0,0.85)+
+    theme(plot.title = element_text(hjust = 0.5),text = element_text(size = 20))+xlab(uni_age[4])+
+    scale_x_continuous(breaks = seq(0,max, by =1),limits=c(-1,max))
 
-#Top rho for each tissue
-names(ddg_list)<- used_tissues
-ddg_list[[1]][order(ddg_list[[1]]$cor_gene_vec,decreasing = T)[1:5],]
-ddg_list[[2]][order(ddg_list[[2]]$cor_gene_vec,decreasing = T)[1:5],]
-ddg_list[[3]][order(ddg_list[[3]]$cor_gene_vec,decreasing = T)[1:5],]
-ddg_list[[4]][order(ddg_list[[4]]$cor_gene_vec,decreasing = T)[1:5],]
-tmp_table<-rbind(ddg_list[[1]][order(ddg_list[[1]]$cor_gene_vec,decreasing = T)[1:2],],ddg_list[[2]][order(ddg_list[[2]]$cor_gene_vec,decreasing = T)[1:5],])
-final_table<-rbind(tmp_table,ddg_list[[3]][order(ddg_list[[3]]$cor_gene_vec,decreasing = T)[1],])          
-          
+  
+  final_gg<-ggarrange(a,b,c,d,
+                      labels = c("A", "B", "C","D"),
+                      ncol =2, nrow = 2)
+  ggsave(paste0("pic3/", tmp_gene, "pho.hist.png"),final_gg,width =10, height=10, dpi = 300)}
+ 
+
+#qq plot for all genes
+for (i in 1:13){
+  aging_marker <- final_table2$rownames.vars_sub.[i]
+  tmp_tissue <- final_table2$organ[i]
+  var_genes <- read.csv("var_genes.csv")
+  obs <- read.csv(paste0(tmp_tissue, ".obs.csv"))
+  X <- fread(paste0(tmp_tissue, ".X.csv"), header=T, data.table=F)
+  mouse_id <- unique(obs[,"mouse.id"])
+  colnames(X) <- var_genes$index
+  mouse_age <- sapply(mouse_id, function(chr){as.numeric(strsplit(chr,"-")[[1]][1])})
+  
+  ##QQ plot
+  unq_age <- sort(unique(mouse_age))
+  cols <- rep(NA, length(unq_age))
+  cols[unq_age==1] <- "black"
+  cols[unq_age==3] <- "blue"
+  cols[unq_age==6] <- "green"
+  cols[unq_age==18] <- "orange"
+  cols[unq_age==24] <- "purple"
+  cols[unq_age==30] <- "red"
+  sample_ages <-  sapply(obs$mouse.id, function(chr){as.numeric(strsplit(chr,"-")[[1]][1])})
+  qqmat <- matrix(NA, nrow=100, ncol=length(unq_age))
+  for(j in 1:length(unq_age)){
+    idx <- which(sample_ages==unq_age[j])
+    x <- X[idx, aging_marker]
+    qqmat[,j] <- quantile(x, seq(from=0, to=1, length=100))
+  }
+  
+  #Add legemf to right of figure
+  png(paste0("pic3/",tmp_tissue, aging_marker, "QQplot.png"), width=960, height=960)
+  par(mar = c(10, 10, 10, 1.5)) ##bottom, left, top, right
+  xlab = "Age 1 month"
+  ylab = "Other Ages"
+  main = paste0(aging_marker,"(",tmp_tissue,")")
+  matplot(qqmat[,1], qqmat, type="l", lwd=4, col=cols,xlab=" ", ylab="", cex.axis=2.5)
+  legend("topleft", legend=unq_age, col=cols, lty=1, cex=3)
+  mtext(xlab, side=1, line=3.5, cex=2.5)
+  mtext(ylab, side=2, line=3.5, cex=2.5)
+  mtext(main, side=3, line=3, cex=2.5)
+  dev.off()}
+
+
+
 
