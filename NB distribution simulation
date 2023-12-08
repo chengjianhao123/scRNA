@@ -179,3 +179,56 @@ for(i in 19001:20000){
   pseudobulk[i]<-cor(apply(dat3,1,mean),age,method="spearman")
   print(i)
 }
+
+# plot pearson correlation result and visulize it 
+result_matrix<-array(0,dim=c(3,3,3))
+for (t in 1:3){
+  mark<-list(c(1,18000),c(18001,19000),c(19001,20000))
+  a<-min(mark[[t]])
+  b<-max(mark[[t]])
+  test_data<-reshape2::melt(correlation_matrix[(a:b),])
+  colnames(test_data)<-c("sample","group","value")
+  test_data$group<-as.factor(test_data$group)
+  test_data$group<-c(rep("HL",(b-a+1)),rep("JS",(b-a+1)),rep("KS",(b-a+1)))
+  p<-ggplot(test_data, aes(x=group, y=value,color=group))+ 
+    geom_boxplot()+theme(text = element_text(size = 24))
+  ggsave(names[t], width = 20, height = 13, units = "cm")
+  rownames(result_matrix[t,,])<-c("HL","JS","KS")
+  colnames(result_matrix[t,,])<-c("max","min","mean")
+  result_matrix[t,1,1]<-max(correlation_matrix[(a:b),1])
+  result_matrix[t,1,2]<-min(correlation_matrix[(a:b),1])
+  result_matrix[t,1,3]<-mean(correlation_matrix[(a:b),1])
+  result_matrix[t,2,1]<-max(correlation_matrix[(a:b),2])
+  result_matrix[t,2,2]<-min(correlation_matrix[(a:b),2])
+  result_matrix[t,2,3]<-mean(correlation_matrix[(a:b),2])
+  result_matrix[t,3,1]<-max(correlation_matrix[(a:b),3])
+  result_matrix[t,3,2]<-min(correlation_matrix[(a:b),3])
+  result_matrix[t,3,3]<-mean(correlation_matrix[(a:b),3])
+}
+
+
+# calculate method 2's result and visulize it
+p_new<-matrix(0,nrow=20000,ncol=3)
+p_new[,1]<-p.adjust(pvalue_matrix[,1],method="BH")
+p_new[,2]<-p.adjust(pvalue_matrix[,2],method="BH")
+p_new[,3]<-p.adjust(pvalue_matrix[,3],method="BH")
+for(t in 1:3){
+  a<-min(mark[[t]])
+  b<-max(mark[[t]])
+  test_data<-reshape2::melt(p_new[(a:b),])
+  colnames(test_data)<-c("sample","group","p_value")
+  test_data$group<-as.factor(test_data$group)
+  test_data$group<-c(rep("HL",(b-a+1)),rep("JS",(b-a+1)),rep("KS",(b-a+1)))
+  p<-ggplot(test_data, aes(x=group, y=p_value,color=group)) +
+    geom_boxplot()+theme(text = element_text(size = 24))
+  ggsave(names[t], width = 20, height = 13, units = "cm")
+}
+
+#pseudo bulk's result
+test_data2<-as.data.frame(cbind(1:20000,pseudobulk))
+colnames(test_data2)<-c("group","value")
+test_data2$group=c(rep("increasing",18000),rep("non-mono",1000),rep("stable",1000))
+p<-ggplot(test_data2, aes(x=group, y=value,color=group)) +
+  geom_boxplot()+theme(text = element_text(size = 24))+
+  ylab("correlation coefficent")
+ggsave("pseudo_bulk.png", width = 20, height = 13, units = "cm")
